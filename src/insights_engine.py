@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,35 @@ def _format_pct(value: float | None) -> str | None:
     else:
         number = f"{value:.2f}".rstrip("0").rstrip(".")
     return f"{number}%"
+
+def _fix_arabic_bidi(text: str) -> str:
+    """
+    Improve RTL rendering for Arabic text containing numbers and punctuation.
+    Uses invisible Right-to-Left Marks around percentages and Arabic full stop
+    for sentence-ending periods.
+    """
+    if not isinstance(text, str):
+        return text
+
+    # Right-to-Left Mark (invisible Unicode character)
+    rlm = "\u200f"
+
+    # Keep percentages visually attached to their number in RTL text.
+    text = re.sub(
+        r"(\d+(?:\.\d+)?)%",
+        rf"{rlm}\1%{rlm}",
+        text,
+    )
+
+    # Convert sentence-ending ASCII periods after Arabic text
+    # to the Arabic full stop, without touching decimal numbers.
+    text = re.sub(
+        r"(?<=[\u0600-\u06FF])\.(?=\s|$)",
+        "۔",
+        text,
+    )
+
+    return text
 
 
 
@@ -253,8 +283,25 @@ def _validate_insights(result: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Insight recommendation is empty.")
     if len(result["positive_points"]) > 3:
         result["positive_points"] = result["positive_points"][:3]
+
     if len(result["risks"]) > 2:
         result["risks"] = result["risks"][:2]
+
+    # Normalize Arabic RTL rendering after Gemini response.
+    result["summary"] = _fix_arabic_bidi(result["summary"])
+
+    result["positive_points"] = [
+        _fix_arabic_bidi(item)
+        for item in result["positive_points"]
+    ]
+
+    result["risks"] = [
+        _fix_arabic_bidi(item)
+        for item in result["risks"]
+    ]
+
+    result["recommendation"] = _fix_arabic_bidi(result["recommendation"])
+
     return result
 
 
@@ -274,6 +321,8 @@ def build_prompt(context: dict[str, Any]) -> str:
 - إذا لم تكفِ البيانات لإثبات استنتاج قوي، استخدم صياغة حذرة مثل: "يستحق المتابعة" أو "تظهر إشارة تستحق المراجعة".
 - يجب أن تكون الإجابة باللغة العربية.
 - عند ذكر أي نسبة مئوية، استخدم صيغة العرض المئوية مثل "26%" أو "61.95%"، وليس قيمة عشرية مثل "0.26".
+- استخدم علامة % مباشرة بعد الرقم دون مسافة.
+- استخدم علامة الوقف العربية "۔" في نهاية الجمل العربية بدل النقطة الإنجليزية ".".
 - عند ذكر أي مبلغ، استخدم صيغة العرض الموجودة في `formatted_metrics` الخاصة بالسياق، مع فواصل آلاف وإظهار العملة باللغة العربية، مثل "15,600 ريال سعودي".
 - لا تستخدم رمز العملة "SAR" في النص الموجه للمستخدم إذا كان الاسم العربي للعملة متاحاً.
 - لا تعرض القيمة العشرية الخام لهامش الربح إذا كانت صيغة العرض المئوية متاحة.
