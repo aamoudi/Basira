@@ -171,7 +171,14 @@ def build_transactions_rows(norm: dict) -> list[dict]:
 
 def build_financial_model_rows(model: dict) -> list[dict]:
     """One row per period from the financial model."""
-    currency = model.get("currency", "SAR")
+
+    currency_code = model.get("currency", "SAR")
+
+    currency_labels = {
+        "SAR": "ريال سعودي",
+    }
+
+    currency = currency_labels.get(currency_code, currency_code)
     rows = []
     for p in model.get("periods", []):
         rows.append({

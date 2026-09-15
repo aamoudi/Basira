@@ -14,6 +14,12 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
+
+DISPLAY_CURRENCY = {
+    "SAR": "ريال سعودي",
+}
+
+
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 INSIGHT_SCHEMA: dict[str, Any] = {
@@ -53,9 +59,17 @@ def _safe_pct(value: float | None, denominator: float | None) -> float | None:
 def _format_amount(value: float | None, currency: str | None = None) -> str | None:
     if value is None:
         return None
-    number = f"{value:,.2f}".rstrip("0").rstrip(".")
-    return f"{number} {currency}" if currency else number
 
+    number = f"{value:,.2f}".rstrip("0").rstrip(".")
+    display_currency = DISPLAY_CURRENCY.get(currency, currency)
+
+    currency_labels = {
+        "SAR": "ريال سعودي",
+    }
+
+    display_currency = currency_labels.get(currency, currency)
+
+    return f"{number} {display_currency}" if display_currency else number
 
 def _format_pct(value: float | None) -> str | None:
     if value is None:
@@ -260,7 +274,8 @@ def build_prompt(context: dict[str, Any]) -> str:
 - إذا لم تكفِ البيانات لإثبات استنتاج قوي، استخدم صياغة حذرة مثل: "يستحق المتابعة" أو "تظهر إشارة تستحق المراجعة".
 - يجب أن تكون الإجابة باللغة العربية.
 - عند ذكر أي نسبة مئوية، استخدم صيغة العرض المئوية مثل "26%" أو "61.95%"، وليس قيمة عشرية مثل "0.26".
-- عند ذكر أي مبلغ، استخدم صيغة العرض الموجودة في `formatted_metrics` أو `formatted_metrics` الخاصة بالسياق، مع فواصل آلاف وإظهار العملة مثل "15,600" بدون اظهار لنوع العملة.
+- عند ذكر أي مبلغ، استخدم صيغة العرض الموجودة في `formatted_metrics` الخاصة بالسياق، مع فواصل آلاف وإظهار العملة باللغة العربية، مثل "15,600 ريال سعودي".
+- لا تستخدم رمز العملة "SAR" في النص الموجه للمستخدم إذا كان الاسم العربي للعملة متاحاً.
 - لا تعرض القيمة العشرية الخام لهامش الربح إذا كانت صيغة العرض المئوية متاحة.
 - لا تغيّر قيمة الأرقام أثناء تنسيقها؛ التنسيق فقط مسموح.
 - أعد JSON مطابقاً للمخطط المطلوب.
