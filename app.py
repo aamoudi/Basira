@@ -414,7 +414,7 @@ async def analyze(file: UploadFile = File(...)):
         schema_path = SRC / "semantic_schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
-        model_name = os.environ.get("BASIRA_MODEL", "gemini-2.0-flash-lite")
+        model_name = os.environ.get("BASIRA_MODEL", "gemini-3.5-flash-lite")
         mapping_json = call_gemini(profile, schema, model_name)
         mapping_json = validate(mapping_json, profile)
 
