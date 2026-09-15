@@ -42,6 +42,7 @@ from zoho_bridge     import (                          # noqa: E402
 
 import json
 import os
+import time
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(title="Basira API", version="0.1")
@@ -355,8 +356,9 @@ UPLOAD_HTML = """
       }
 
       const data = await resp.json();
-      // Redirect to Zoho Dashboard
-      window.location.href = data.dashboard_url;
+
+      // Open the newly refreshed dashboard as a new navigation.
+      window.location.replace(data.dashboard_url);
 
     } catch (err) {
       clearInterval(stepInterval);
@@ -366,6 +368,19 @@ UPLOAD_HTML = """
       errorBox.textContent = '⚠ ' + err.message;
     }
   }
+  
+  window.addEventListener('pageshow', function (event) {
+  if (event.persisted) {
+    selectedFile = null;
+    fileInput.value = '';
+    fileSelected.style.display = 'none';
+    submitBtn.disabled = true;
+    progress.style.display = 'none';
+    errorBox.style.display = 'none';
+
+    clearInterval(stepInterval);
+  }
+});
 </script>
 
 </body>
@@ -472,7 +487,15 @@ async def analyze(file: UploadFile = File(...)):
             csv_data = rows_to_csv(rows)
             import_via_v1(token, email, workspace_name, table_name, csv_data, label)
 
-        return JSONResponse({"dashboard_url": ZOHO_DASHBOARD_URL})
+        # Cache-busting: force the browser to load the dashboard
+        # after a new file has been analyzed.
+        run_id = int(time.time() * 1000)
+
+        separator = "&" if "?" in ZOHO_DASHBOARD_URL else "?"
+
+        dashboard_url = f"{ZOHO_DASHBOARD_URL}{separator}basira_run={run_id}"
+
+        return JSONResponse({"dashboard_url": dashboard_url})
 
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
