@@ -440,7 +440,7 @@ async def analyze(file: UploadFile = File(...)):
         transactions = norm_result["records"]
 
         # ── 4. Financial Model ────────────────────────────────────────────
-        import pandas as pd
+        
         df = pd.DataFrame([
             {k: v for k, v in t.items() if not k.startswith("_")}
             for t in transactions
