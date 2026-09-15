@@ -446,9 +446,8 @@ async def analyze(file: UploadFile = File(...)):
             for t in transactions
         ])
 
-        from financial_model import resolve_mapping as fm_resolve, build_financial_model as fm_build
-        fm_field_map = fm_resolve(mapping_json)
-        financial_model = fm_build(df, fm_field_map, source_file=file.filename)
+        from financial_model import build_financial_model as fm_build
+        financial_model = fm_build(norm_result)
 
         # ── 5. Insights ───────────────────────────────────────────────────
         norm_result = {
