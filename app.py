@@ -357,8 +357,8 @@ UPLOAD_HTML = """
 
       const data = await resp.json();
 
-      // Open the dashboard in a new tab and keep Basira in the current tab.
-      window.open(data.dashboard_url, '_blank');
+      // Open the dashboard in the same tab while preserving browser history.
+      window.location.href = data.dashboard_url;
 
     } catch (err) {
       clearInterval(stepInterval);
