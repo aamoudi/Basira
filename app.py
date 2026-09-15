@@ -14,6 +14,7 @@ import sys
 import tempfile
 import traceback
 from pathlib import Path
+import pandas as pd
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
