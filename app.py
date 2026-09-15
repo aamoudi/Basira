@@ -450,13 +450,7 @@ async def analyze(file: UploadFile = File(...)):
         financial_model = fm_build(norm_result)
 
         # ── 5. Insights ───────────────────────────────────────────────────
-        norm_result = {
-            "records": [
-                {k: v for k, v in t.items() if not k.startswith("_")}
-                for t in transactions
-            ]
-        }
-        insights = build_insights(norm_result, financial_model)
+        insights = build_insights(financial_model, norm_result)
 
         # ── 6. Zoho Bridge ────────────────────────────────────────────────
         token = get_access_token()
