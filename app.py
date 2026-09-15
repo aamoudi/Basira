@@ -25,7 +25,7 @@ sys.path.insert(0, str(SRC))
 
 from profile_excel   import profile_workbook          # noqa: E402
 from run_mapper      import call_gemini, validate      # noqa: E402
-from normalizer      import resolve_column_map, load_excel_rows, normalize  # noqa: E402
+from normalizer import build_normalized_transactions  # noqa: E402
 from financial_model import build_financial_model      # noqa: E402
 from insights_engine import build_insights             # noqa: E402
 from zoho_bridge     import (                          # noqa: E402
@@ -419,15 +419,24 @@ async def analyze(file: UploadFile = File(...)):
         mapping_json = validate(mapping_json, profile)
 
         # ── 3. Normalize ──────────────────────────────────────────────────
-        col_map = resolve_column_map(mapping_json)
-        if not col_map:
-            raise ValueError(
-                "لم نتمكن من التعرف على أعمدة مالية في هذا الملف. "
-                "تأكد أن الملف يحتوي على بيانات مالية مثل الإيرادات أو التكاليف."
-            )
+        mapping_items = []
+        for sheet in mapping_json.get("sheet_results", []):
+            mapping_items.extend(sheet.get("mappings", []))
 
-        _, raw_rows = load_excel_rows(Path(tmp_path))
-        transactions, _ = normalize(raw_rows, col_map)
+        if not mapping_items:
+            raise ValueError("لم نتمكن من التعرف على أعمدة مالية في هذا الملف.")
+
+        xl = pd.ExcelFile(tmp_path)
+        best_sheet = max(xl.sheet_names, key=lambda s: xl.parse(s).shape[0])
+        raw_rows = xl.parse(best_sheet).to_dict(orient="records")
+
+        norm_result = build_normalized_transactions(
+            raw_rows,
+            mapping_items,
+            source_workbook=file.filename,
+            source_sheet=best_sheet,
+        )
+        transactions = norm_result["records"]
 
         # ── 4. Financial Model ────────────────────────────────────────────
         import pandas as pd
@@ -441,13 +450,13 @@ async def analyze(file: UploadFile = File(...)):
         financial_model = fm_build(df, fm_field_map, source_file=file.filename)
 
         # ── 5. Insights ───────────────────────────────────────────────────
-        norm_dict = {
+        norm_result = {
             "records": [
                 {k: v for k, v in t.items() if not k.startswith("_")}
                 for t in transactions
             ]
         }
-        insights = build_insights(norm_dict, financial_model)
+        insights = build_insights(norm_result, financial_model)
 
         # ── 6. Zoho Bridge ────────────────────────────────────────────────
         token = get_access_token()
@@ -455,7 +464,7 @@ async def analyze(file: UploadFile = File(...)):
 
         tables = [
             ("basira_transactions",
-             build_transactions_rows(norm_dict),
+             build_transactions_rows(norm_result),
              "Transactions"),
             ("basira_financial_model",
              build_financial_model_rows(financial_model),
