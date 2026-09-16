@@ -160,12 +160,50 @@ def rows_to_csv(rows: list[dict]) -> str:
 # ── DATA TRANSFORMERS ─────────────────────────────────────────────────────────
 
 def build_transactions_rows(norm: dict) -> list[dict]:
-    """Flatten normalized_transactions records — skip internal quality fields."""
+    """
+    Flatten normalized transaction records and calculate
+    gross profit and gross margin for each transaction.
+    """
     skip = {"source_row", "data_quality"}
     rows = []
+
     for rec in norm.get("records", []):
         row = {k: v for k, v in rec.items() if k not in skip}
+
+        revenue = row.get("revenue")
+        cogs = row.get("cogs")
+
+        # Calculate Gross Profit = Revenue - COGS
+        if revenue is not None and cogs is not None:
+            try:
+                revenue_num = float(revenue)
+                cogs_num = float(cogs)
+
+                gross_profit = revenue_num - cogs_num
+
+                # Gross Margin = Gross Profit / Revenue × 100
+                gross_margin = (
+                    (gross_profit / revenue_num) * 100
+                    if revenue_num != 0
+                    else None
+                )
+
+                row["gross_profit"] = round(gross_profit, 2)
+                row["gross_margin"] = (
+                    round(gross_margin, 2)
+                    if gross_margin is not None
+                    else None
+                )
+
+            except (TypeError, ValueError):
+                row["gross_profit"] = None
+                row["gross_margin"] = None
+        else:
+            row["gross_profit"] = None
+            row["gross_margin"] = None
+
         rows.append(row)
+
     return rows
 
 
