@@ -160,63 +160,18 @@ def rows_to_csv(rows: list[dict]) -> str:
 # ── DATA TRANSFORMERS ─────────────────────────────────────────────────────────
 
 def build_transactions_rows(norm: dict) -> list[dict]:
-    """
-    Flatten normalized transaction records and calculate
-    gross profit and gross margin for each transaction.
-    """
+    """Flatten normalized_transactions records — skip internal quality fields."""
     skip = {"source_row", "data_quality"}
     rows = []
-
     for rec in norm.get("records", []):
         row = {k: v for k, v in rec.items() if k not in skip}
-
-        revenue = row.get("revenue")
-        cogs = row.get("cogs")
-
-        # Calculate Gross Profit = Revenue - COGS
-        if revenue is not None and cogs is not None:
-            try:
-                revenue_num = float(revenue)
-                cogs_num = float(cogs)
-
-                gross_profit = revenue_num - cogs_num
-
-                # Gross Margin = Gross Profit / Revenue × 100
-                gross_margin = (
-                    (gross_profit / revenue_num) * 100
-                    if revenue_num != 0
-                    else None
-                )
-
-                row["gross_profit"] = round(gross_profit, 2)
-                row["gross_margin"] = (
-                    round(gross_margin, 2)
-                    if gross_margin is not None
-                    else None
-                )
-
-            except (TypeError, ValueError):
-                row["gross_profit"] = None
-                row["gross_margin"] = None
-        else:
-            row["gross_profit"] = None
-            row["gross_margin"] = None
-
         rows.append(row)
-
     return rows
 
 
 def build_financial_model_rows(model: dict) -> list[dict]:
     """One row per period from the financial model."""
-
-    currency_code = model.get("currency", "SAR")
-
-    currency_labels = {
-        "SAR": "ريال سعودي",
-    }
-
-    currency = currency_labels.get(currency_code, currency_code)
+    currency = model.get("currency", "ريال سعودي")
     rows = []
     for p in model.get("periods", []):
         rows.append({
@@ -224,8 +179,12 @@ def build_financial_model_rows(model: dict) -> list[dict]:
             "revenue":      p.get("revenue"),
             "cogs":         p.get("cogs"),
             "gross_profit": p.get("gross_profit"),
-            "gross_margin": round(p.get("gross_margin", 0) * 100, 2),  # store as %
+            "gross_margin": (
+                round(p["gross_margin"] * 100, 2)
+                if p.get("gross_margin") is not None else None
+            ),  # store as %
             "tax":          p.get("tax"),
+            "operating_expense": p.get("operating_expense"),
             "transactions": p.get("row_count"),
             "currency":     currency,
         })

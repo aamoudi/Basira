@@ -33,9 +33,23 @@ Use context rather than exact string matching alone. Consider:
 - sample values
 - other columns in the same sheet
 - the table/transaction context
+- relationships between columns, especially when a monetary amount is accompanied by a
+  transaction type or category that determines whether the amount is revenue, expense,
+  purchase, refund, sale, or another type
 
 The source can be Arabic, English, mixed-language, abbreviated, camelCase, snake_case,
 or poorly named.
+
+Important:
+- A monetary column may contain multiple financial meanings depending on another column
+  such as Transaction Type.
+- Do not assume that every monetary amount is Revenue when another column explicitly
+  classifies the transaction.
+- If a source contains one Amount column plus a Transaction Type column, map the Amount
+  to Revenue as the shared monetary source when appropriate, map the classification column
+  to Transaction Type, and let downstream normalization classify each row.
+- Department, division, branch, or organizational unit is not part of the current Basira
+  MVP semantic schema and should not be introduced as a new semantic field.
 
 Do not invent mappings when evidence is weak. A source column may remain unmapped.
 A semantic field should normally have at most one best source column per sheet.
@@ -160,6 +174,7 @@ def validate(result: dict[str, Any], profile: dict[str, Any], threshold: float =
         "Transaction Date",
         "Quantity",
         "Payment Status",
+        "Transaction Type",
         "Invoice Number",
     }
 

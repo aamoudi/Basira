@@ -15,6 +15,14 @@ CANONICAL_FIELDS = [
     "cogs",
     "tax",
     "payment_status",
+    "transaction_type",
+]
+
+# These are derived from normalized transaction data; they are not source mappings.
+DERIVED_FIELDS = [
+    "operating_expense",
+    "gross_profit",
+    "gross_margin",
 ]
 
 SEMANTIC_TO_CANONICAL = {
@@ -26,6 +34,7 @@ SEMANTIC_TO_CANONICAL = {
     "COGS": "cogs",
     "Tax": "tax",
     "Payment Status": "payment_status",
+    "Transaction Type": "transaction_type",
 }
 
 NULL_MARKERS = {"", "n/a", "na", "null", "none", "unknown", "-"}
@@ -171,13 +180,73 @@ def build_normalized_transactions(
                 quality["invalid_fields"].append(canonical)
                 invalid_by_field[canonical] += 1
 
+        # Derived financial fields. These are initialized for every row so the
+        # transaction table has a stable schema even when the source omits them.
+        record["operating_expense"] = None
+        record["gross_profit"] = None
+        record["gross_margin"] = None
+
+        # A single monetary source can represent different transaction types.
+        # Use Transaction Type to classify the amount instead of treating every
+        # amount as revenue. Do not guess when the type is unknown.
+        revenue_source = source_by_canonical.get("revenue")
+        expense_source = source_by_canonical.get("operating_expense")
+        type_source = source_by_canonical.get("transaction_type")
+
+        # If the same source amount is mapped to Revenue or Operating Expense
+        # and Transaction Type determines its meaning, classify it row by row.
+        shared_amount_source = None
+        if type_source:
+            if revenue_source and (not expense_source or revenue_source == expense_source):
+                shared_amount_source = revenue_source
+            elif expense_source and not revenue_source:
+                shared_amount_source = expense_source
+
+        if shared_amount_source and type_source:
+            raw_amount = row.get(shared_amount_source)
+            amount = _to_number(raw_amount)
+            tx_type = str(row.get(type_source) or "").strip().lower()
+
+            expense_terms = (
+                "expense", "expenses", "operating expense", "cost",
+                "purchase", "purchases", "مصروف", "مصروفات", "مصاريف",
+                "شراء", "مشتريات",
+            )
+            revenue_terms = (
+                "revenue", "income", "sale", "sales", "إيراد", "إيرادات",
+                "دخل", "مبيعات", "بيع",
+            )
+
+            if amount is not None and tx_type:
+                if any(term in tx_type for term in expense_terms):
+                    record["revenue"] = None
+                    record["operating_expense"] = amount
+                elif any(term in tx_type for term in revenue_terms):
+                    record["revenue"] = amount
+                    record["operating_expense"] = None
+                else:
+                    record["revenue"] = None
+                    record["operating_expense"] = None
+
+        # Missing COGS is not zero COGS. Gross profit and margin are therefore
+        # unavailable unless both Revenue and COGS exist for this row.
+        revenue_value = _to_number(record.get("revenue"))
+        cogs_value = _to_number(record.get("cogs"))
+        if revenue_value is not None and cogs_value is not None:
+            gross_profit = revenue_value - cogs_value
+            record["gross_profit"] = round(gross_profit, 2)
+            record["gross_margin"] = (
+                round((gross_profit / revenue_value) * 100, 2)
+                if revenue_value != 0 else None
+            )
+
         record["data_quality"] = quality
         records.append(record)
 
     return {
         "model": "Basira Normalized Transactions",
         "version": "0.1",
-        "schema": CANONICAL_FIELDS,
+        "schema": CANONICAL_FIELDS + DERIVED_FIELDS,
         "records": records,
         "mapping": meta_by_canonical,
         "quality_summary": {
