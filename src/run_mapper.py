@@ -50,6 +50,15 @@ Important:
   to Transaction Type, and let downstream normalization classify each row.
 - Department, division, branch, or organizational unit is not part of the current Basira
   MVP semantic schema and should not be introduced as a new semantic field.
+Customer fallback rule:
+- إذا وُجد عمود واضح يمثل Customer / Client / Company / Account
+  فقم بربطه بالحقل "Customer".
+- إذا لم يوجد أي عمود مناسب للحقل "Customer"، ولكن يوجد عمود واضح
+  يمثل Department / Branch / Section / Division أو ما يعادله بالعربية،
+  فاستخدم هذا العمود كبديل للحقل "Customer".
+- في هذه الحالة لا تقترح semantic field جديدًا مثل "Department"؛
+  بل اربط العمود مباشرة بالحقل "Customer".
+- إذا وُجد Customer واضح فلا تستخدم Department أو Branch كبديل.  
 
 Do not invent mappings when evidence is weak. A source column may remain unmapped.
 A semantic field should normally have at most one best source column per sheet.
