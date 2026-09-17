@@ -92,20 +92,54 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
         missing = set(quality.get("missing_fields", []))
         invalid = set(quality.get("invalid_fields", []))
 
+        transaction_type = str(
+            record.get("transaction_type") or ""
+        ).strip().lower()
+
+        expense_terms = (
+            "expense",
+            "expenses",
+            "operating expense",
+            "cost",
+            "purchase",
+            "purchases",
+            "مصروف",
+            "مصروفات",
+            "مصاريف",
+            "شراء",
+            "مشتريات",
+        )
+
+        is_expense_transaction = any(
+            term in transaction_type
+            for term in expense_terms
+        )
+
         for field in ("revenue", "cogs", "tax"):
+            # معاملات المصروفات ليست معاملات إيرادات،
+            # لذلك لا نعتبر غياب revenue فيها خطأ.
+            if field == "revenue" and is_expense_transaction:
+                continue
+
             value = _to_number(record.get(field))
+
             if field in missing:
                 bucket[f"missing_{field}_rows"] += 1
+
             elif field in invalid or value is None:
                 bucket[f"invalid_{field}_rows"] += 1
+
             else:
                 bucket[field] += value
+
                 if field == "revenue":
                     total_revenue += value
+
                 elif field == "cogs":
                     total_cogs += value
                     bucket["has_cogs"] = True
                     has_any_cogs = True
+
                 else:
                     total_tax += value
 

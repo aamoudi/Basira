@@ -227,14 +227,34 @@ def build_insight_context(financial_model: dict[str, Any], normalized: dict[str,
     revenue = _num(metrics.get("revenue", {}).get("value")) or 0.0
     gross_profit = _num(metrics.get("gross_profit", {}).get("value"))
     tax = _num(metrics.get("tax", {}).get("value"))
-    unpaid_labels = {"unpaid", "overdue", "late", "pending"}
+    completed_labels = {
+        "paid",
+        "completed",
+        "complete",
+        "settled",
+        "مدفوع",
+        "مكتمل",
+        "مسدد",
+    }
+
     unpaid_count = sum(
-        1 for row in records
-        if str(row.get("payment_status") or "").strip().lower() in unpaid_labels
+        1
+        for row in records
+        if str(row.get("payment_status") or "").strip()
+        and str(row.get("payment_status") or "").strip().lower()
+        not in completed_labels
     )
 
     customer_rank = _aggregate_dimension(records, "customer")
-    product_rank = _aggregate_dimension(records, "product")
+
+    product_records = [
+        row
+        for row in records
+        if _num(row.get("revenue")) is not None
+        and _num(row.get("revenue")) > 0
+    ]
+
+    product_rank = _aggregate_dimension(product_records, "product")
 
     sufficiency = _data_sufficiency(periods)
     currency = financial_model.get("currency")
