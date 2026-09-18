@@ -151,9 +151,24 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
     periods: list[dict[str, Any]] = []
     for period in sorted(by_period):
         bucket = by_period[period]
-        if bucket["has_cogs"]:
-            gross_profit = bucket["revenue"] - bucket["cogs"]
-            gross_margin = gross_profit / bucket["revenue"] if bucket["revenue"] else None
+        has_profit_inputs = (
+            bucket["revenue"] != 0
+            or bucket["cogs"] != 0
+            or bucket["operating_expense"] != 0
+        )
+
+        if has_profit_inputs:
+            gross_profit = (
+                bucket["revenue"]
+                - bucket["cogs"]
+                - bucket["operating_expense"]
+            )
+
+            gross_margin = (
+                gross_profit / bucket["revenue"]
+                if bucket["revenue"]
+                else None
+            )
         else:
             gross_profit = None
             gross_margin = None
@@ -177,9 +192,30 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
             },
         })
 
-    if has_any_cogs:
-        gross_profit = total_revenue - total_cogs
-        gross_margin = gross_profit / total_revenue if total_revenue else None
+    has_any_profit_inputs = any(
+        any(
+            _to_number(record.get(field)) is not None
+            for field in (
+                "revenue",
+                "cogs",
+                "operating_expense",
+            )
+        )
+        for record in records
+    )
+
+    if has_any_profit_inputs:
+        gross_profit = (
+            total_revenue
+            - total_cogs
+            - total_operating_expense
+        )
+
+        gross_margin = (
+            gross_profit / total_revenue
+            if total_revenue
+            else None
+        )
     else:
         gross_profit = None
         gross_margin = None

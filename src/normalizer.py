@@ -228,17 +228,54 @@ def build_normalized_transactions(
                     record["revenue"] = None
                     record["operating_expense"] = None
 
-        # Missing COGS is not zero COGS. Gross profit and margin are therefore
-        # unavailable unless both Revenue and COGS exist for this row.
+        # Unified Basira Profit:
+        # Profit = Revenue - COGS - Operating Expense
+        #
+        # In the MVP, gross_profit is the single profit field exposed to Zoho.
+        # Missing cost components are treated as unavailable, but the available
+        # components are still used so the report does not remain blank when
+        # revenue and/or expenses are present.
+
         revenue_value = _to_number(record.get("revenue"))
         cogs_value = _to_number(record.get("cogs"))
-        if revenue_value is not None and cogs_value is not None:
-            gross_profit = revenue_value - cogs_value
-            record["gross_profit"] = round(gross_profit, 2)
-            record["gross_margin"] = (
-                round((gross_profit / revenue_value) * 100, 2)
-                if revenue_value != 0 else None
+        operating_expense_value = _to_number(record.get("operating_expense"))
+
+        has_profit_inputs = any(
+            value is not None
+            for value in (
+                revenue_value,
+                cogs_value,
+                operating_expense_value,
             )
+        )
+
+        if has_profit_inputs:
+            profit_revenue = revenue_value if revenue_value is not None else 0.0
+            profit_cogs = cogs_value if cogs_value is not None else 0.0
+            profit_operating_expense = (
+                operating_expense_value
+                if operating_expense_value is not None
+                else 0.0
+            )
+
+            gross_profit = (
+                profit_revenue
+                - profit_cogs
+                - profit_operating_expense
+            )
+
+            record["gross_profit"] = round(gross_profit, 2)
+
+            if revenue_value is not None and revenue_value != 0:
+                record["gross_margin"] = round(
+                    (gross_profit / revenue_value) * 100,
+                    2,
+                )
+            else:
+                record["gross_margin"] = None
+        else:
+            record["gross_profit"] = None
+            record["gross_margin"] = None
 
         record["data_quality"] = quality
         records.append(record)
