@@ -48,17 +48,28 @@ Important:
 - If a source contains one Amount column plus a Transaction Type column, map the Amount
   to Revenue as the shared monetary source when appropriate, map the classification column
   to Transaction Type, and let downstream normalization classify each row.
-- Department, division, branch, or organizational unit is not part of the current Basira
-  MVP semantic schema and should not be introduced as a new semantic field.
+
 Customer fallback rule:
-- إذا وُجد عمود واضح يمثل Customer / Client / Company / Account
-  فقم بربطه بالحقل "Customer".
-- إذا لم يوجد أي عمود مناسب للحقل "Customer"، ولكن يوجد عمود واضح
-  يمثل Department / Branch / Section / Division أو ما يعادله بالعربية،
-  فاستخدم هذا العمود كبديل للحقل "Customer".
-- في هذه الحالة لا تقترح semantic field جديدًا مثل "Department"؛
-  بل اربط العمود مباشرة بالحقل "Customer".
-- إذا وُجد Customer واضح فلا تستخدم Department أو Branch كبديل.  
+- Prefer a true Customer / Client column when one exists.
+- If no Customer column exists, use Department / Division / Company / Account / Branch / Section or their
+  Arabic equivalents as the source for the semantic field "Customer".
+- Do not create a new semantic field such as "Department".
+- This is a predefined fallback so that the normalized field remains "customer".
+
+
+
+Product fallback rule:
+- Prefer a true Product column when one exists.
+- If Product does not exist, use Item / البند as the source for the semantic field "Product".
+- If neither Product nor Item / البند exists, use Category / الفئة as the source for
+  the semantic field "Product".
+- Do not create new semantic fields such as "Item" or "Category".
+- The priority must always be:
+  Product → Item / البند → Category / الفئة.
+
+Do not replace a higher-priority field with a lower-priority fallback when the
+higher-priority field exists.
+ 
 
 Do not invent mappings when evidence is weak. A source column may remain unmapped.
 A semantic field should normally have at most one best source column per sheet.
@@ -167,10 +178,150 @@ def call_gemini(profile: dict[str, Any], semantic_schema: dict[str, Any], model:
         raise RuntimeError("Gemini returned JSON that does not match the expected Basira mapping structure.")
     return result
 
+CUSTOMER_FALLBACK_GROUPS = (
+    (
+        "customer",
+        "customer name",
+        "client",
+        "client name",
+        "العميل",
+        "اسم العميل",
+    ),
+    (
+        "department",
+        "department name",
+        "division",
+        "branch",
+        "section",
+        "business unit",
+        "القسم",
+        "اسم القسم",
+        "الفرع",
+        "الشعبة",
+        "الإدارة",
+    ),
+)
+
+PRODUCT_FALLBACK_GROUPS = (
+    (
+        "product",
+        "product name",
+        "المنتج",
+        "اسم المنتج",
+    ),
+    (
+        "item",
+        "item name",
+        "line item",
+        "البند",
+        "اسم البند",
+    ),
+    (
+        "category",
+        "category name",
+        "الفئة",
+        "اسم الفئة",
+    ),
+)
+
+
+def _normalize_column_label(value: Any) -> str:
+    return (
+        str(value)
+        .strip()
+        .casefold()
+        .replace("_", " ")
+        .replace("-", " ")
+        .replace("  ", " ")
+    )
+
+
+def _find_fallback_source(
+    columns: list[str],
+    groups: tuple[tuple[str, ...], ...],
+) -> str | None:
+    normalized_columns = {
+        column: _normalize_column_label(column)
+        for column in columns
+    }
+
+    for aliases in groups:
+        normalized_aliases = {
+            _normalize_column_label(alias)
+            for alias in aliases
+        }
+
+        for column in columns:
+            if normalized_columns[column] in normalized_aliases:
+                return column
+
+    return None
+
+
+def _has_usable_mapping(
+    mappings: list[dict[str, Any]],
+    semantic_field: str,
+) -> bool:
+    return any(
+        mapping.get("semantic_field") == semantic_field
+        and mapping.get("status") in {"accepted", "needs_review"}
+        for mapping in mappings
+    )
+
+
+def _apply_fallback_mapping(
+    sheet_result: dict[str, Any],
+    columns: list[str],
+    semantic_field: str,
+    fallback_groups: tuple[tuple[str, ...], ...],
+    reason: str,
+) -> None:
+    mappings = sheet_result.get("mappings", [])
+
+    # Do not override a valid mapping that already exists.
+    if _has_usable_mapping(mappings, semantic_field):
+        return
+
+    source = _find_fallback_source(columns, fallback_groups)
+    if source is None:
+        return
+
+    # Remove any previous mapping that used the selected fallback source.
+    # The fallback rule is authoritative when the preferred semantic field
+    # was not successfully mapped.
+    mappings = [
+        mapping
+        for mapping in mappings
+        if mapping.get("source_column") != source
+    ]
+
+    mappings.append(
+        {
+            "source_column": source,
+            "semantic_field": semantic_field,
+            "confidence": 1.0,
+            "status": "accepted",
+            "reason": reason,
+        }
+    )
+
+    sheet_result["mappings"] = mappings
+
+    sheet_result["unmapped_semantic_fields"] = [
+        field
+        for field in sheet_result.get("unmapped_semantic_fields", [])
+        if field != semantic_field
+    ]
+
 
 def validate(result: dict[str, Any], profile: dict[str, Any], threshold: float = CONFIDENCE_THRESHOLD) -> dict[str, Any]:
     valid_columns = {
-        sheet["sheet_name"]: set(sheet["column_names"])
+    sheet["sheet_name"]: set(sheet["column_names"])
+    for sheet in profile.get("sheets", [])
+    }
+
+    sheet_columns = {
+        sheet["sheet_name"]: list(sheet["column_names"])
         for sheet in profile.get("sheets", [])
     }
     allowed_semantics = {
@@ -209,6 +360,30 @@ def validate(result: dict[str, Any], profile: dict[str, Any], threshold: float =
                 mapping["status"] = "needs_review"
                 mapping["reason"] = (mapping.get("reason") or "") + f" | Confidence below {threshold:.2f}."
             seen_semantics.add(semantic)
+        # Apply deterministic Basira fallback rules after validating the AI mapping.
+        # Customer: Customer → Department/Branch/etc.
+        # Product: Product → Item/البند → Category/الفئة.
+        for sheet_result in result.get("sheet_results", []):
+            sheet_name = sheet_result.get("sheet_name", "")
+            columns = sheet_columns.get(sheet_name, [])
+
+            _apply_fallback_mapping(
+                sheet_result,
+                columns,
+                "Customer",
+                CUSTOMER_FALLBACK_GROUPS,
+                "Deterministic Basira fallback: Customer was unavailable, so an organizational unit column was mapped to Customer.",
+            )
+
+            _apply_fallback_mapping(
+                sheet_result,
+                columns,
+                "Product",
+                PRODUCT_FALLBACK_GROUPS,
+                "Deterministic Basira fallback: Product was unavailable, so the highest-priority available Item/Category column was mapped to Product.",
+            )
+
+    
 
     return result
 
