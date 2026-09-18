@@ -67,6 +67,17 @@ Product fallback rule:
 - The priority must always be:
   Product → Item / البند → Category / الفئة.
 
+Profit mapping rule:
+- If a source column clearly represents Net Profit / Profit / Net Income,
+  map it to "Net Profit".
+- If a source column clearly represents Profit Margin / Margin %, map it
+  to "Profit Margin".
+- If these fields exist in the source, prefer them as direct source values
+  instead of deriving the same value unnecessarily.
+- Net Profit and Profit Margin are part of the mapping layer only; they do
+  not represent new dashboard reports.  
+  
+
 Do not replace a higher-priority field with a lower-priority fallback when the
 higher-priority field exists.
  
@@ -336,6 +347,8 @@ def validate(result: dict[str, Any], profile: dict[str, Any], threshold: float =
         "Payment Status",
         "Transaction Type",
         "Invoice Number",
+        "Net Profit",
+        "Profit Margin",
     }
 
     for sheet_result in result.get("sheet_results", []):

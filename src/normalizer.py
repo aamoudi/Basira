@@ -35,6 +35,11 @@ SEMANTIC_TO_CANONICAL = {
     "Tax": "tax",
     "Payment Status": "payment_status",
     "Transaction Type": "transaction_type",
+
+    # Source-provided profit fields are normalized into the existing
+    # Basira profit columns. No new dashboard columns are created.
+    "Net Profit": "gross_profit",
+    "Profit Margin": "gross_margin",
 }
 
 NULL_MARKERS = {"", "n/a", "na", "null", "none", "unknown", "-"}
@@ -70,6 +75,36 @@ def _to_number(value: Any) -> float | int | None:
         except InvalidOperation:
             return None
     return int(number) if number == number.to_integral_value() else float(number)
+
+
+def _to_margin_percent(value: Any) -> float | None:
+    """
+    Convert a source profit margin into percentage points.
+
+    Examples:
+      0.25   -> 25.0
+      25     -> 25.0
+      "25%"  -> 25.0
+    """
+    if _is_null(value):
+        return None
+
+    text = str(value).strip()
+
+    has_percent_sign = "%" in text
+
+    number = _to_number(text)
+    if number is None:
+        return None
+
+    if has_percent_sign:
+        return float(number)
+
+    # Decimal ratio such as 0.25 means 25%.
+    if -1 <= number <= 1:
+        return float(number * 100)
+
+    return float(number)
 
 
 def _to_quantity(value: Any) -> float | int | None:
@@ -266,19 +301,168 @@ def build_normalized_transactions(
 
             record["gross_profit"] = round(gross_profit, 2)
 
-            if revenue_value is not None and revenue_value != 0:
-                record["gross_margin"] = round(
-                    (gross_profit / revenue_value) * 100,
-                    2,
-                )
-            else:
-                record["gross_margin"] = None
-        else:
-            record["gross_profit"] = None
-            record["gross_margin"] = None
+            # Profit calculation
+            # Prefer a source-provided Net Profit when available.
+            profit_source = source_by_canonical.get("gross_profit")
+
+            if profit_source:
+                source_profit = _to_number(row.get(profit_source))
+
+                if source_profit is not None:
+                    record["gross_profit"] = round(float(source_profit), 2)
+
+            # If Net Profit is not supplied by the source, derive profit
+            # from the normalized monetary components.
+            if record["gross_profit"] is None:
+                revenue_value = _to_number(record.get("revenue"))
+                cogs_value = _to_number(record.get("cogs"))
+                operating_expense_value = _to_number(record.get("operating_expense"))
+
+                if any(
+                    value is not None
+                    for value in (
+                        revenue_value,
+                        cogs_value,
+                        operating_expense_value,
+                    )
+                ):
+                    record["gross_profit"] = round(
+                        (revenue_value or 0.0)
+                        - (cogs_value or 0.0)
+                        - (operating_expense_value or 0.0),
+                        2,
+                    )
+
+            # Profit Margin is NOT calculated per transaction row.
+            # It will be calculated monthly after all records are built.
+            margin_source = source_by_canonical.get("gross_margin")
+
+            if margin_source:
+                source_margin = _to_margin_percent(row.get(margin_source))
+                if source_margin is not None:
+                    record["gross_margin"] = round(source_margin, 2)
+                    record["_source_profit_margin"] = round(source_margin, 2)
 
         record["data_quality"] = quality
         records.append(record)
+
+        # ------------------------------------------------------------------
+        # Monthly Profit Margin
+        #
+        # Keep exactly one margin value per month:
+        # the row representing the last transaction date of that month.
+        # All other rows in the same month receive None.
+        # ------------------------------------------------------------------
+
+        source_margin_available = source_by_canonical.get("gross_margin") is not None
+
+        monthly_records: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+
+        for record_index, record in enumerate(records):
+            transaction_date = record.get("transaction_date")
+
+            if (
+                isinstance(transaction_date, str)
+                and len(transaction_date) >= 7
+            ):
+                period = transaction_date[:7]
+                monthly_records.setdefault(period, []).append(
+                    (record_index, record)
+                )
+
+        for period_records in monthly_records.values():
+            # Remove row-level margin values first.
+            for _, record in period_records:
+                record["gross_margin"] = None
+
+            # Last transaction date in the month.
+            last_date = max(
+                record.get("transaction_date")
+                for _, record in period_records
+                if record.get("transaction_date")
+            )
+
+            # Choose exactly one row on the last transaction date.
+            target_index, target_record = next(
+                (
+                    (index, record)
+                    for index, record in reversed(period_records)
+                    if record.get("transaction_date") == last_date
+                ),
+                (None, None),
+            )
+
+            if target_record is None:
+                continue
+
+            if source_margin_available:
+                # Re-find the latest available source margin in the month.
+                source_margin_value = None
+
+                for _, record in reversed(period_records):
+                    candidate = record.get("gross_margin")
+                    if candidate is not None:
+                        source_margin_value = candidate
+                        break
+
+                # The row values were cleared above, so use the source column
+                # directly when a source margin exists.
+                margin_source = source_by_canonical.get("gross_margin")
+                if margin_source:
+                    for _, original_record in reversed(period_records):
+                        raw_value = original_record.get(margin_source)
+                        if raw_value is not None:
+                            source_margin_value = _to_margin_percent(raw_value)
+                            if source_margin_value is not None:
+                                break
+
+                target_record["gross_margin"] = (
+                    round(source_margin_value, 2)
+                    if source_margin_value is not None
+                    else None
+                )
+
+            else:
+                # Derive monthly margin from monthly profit and revenue.
+                monthly_revenue = 0.0
+                monthly_profit = 0.0
+                has_revenue = False
+                has_profit = False
+
+                for _, record in period_records:
+                    revenue_value = _to_number(record.get("revenue"))
+                    profit_value = _to_number(record.get("gross_profit"))
+
+                    if revenue_value is not None:
+                        monthly_revenue += float(revenue_value)
+                        has_revenue = True
+
+                    if profit_value is not None:
+                        monthly_profit += float(profit_value)
+                        has_profit = True
+
+                if has_revenue and monthly_revenue != 0 and has_profit:
+                    target_record["gross_margin"] = round(
+                        (monthly_profit / monthly_revenue) * 100,
+                        2,
+                    )
+
+                for _, record in period_records:
+                    record["gross_margin"] = None
+
+                source_margin_value = None
+
+                if source_margin_available:
+                    for _, record in reversed(period_records):
+                        candidate = record.get("_source_profit_margin")
+                        if candidate is not None:
+                            source_margin_value = candidate
+                            break
+
+                    target_record["gross_margin"] = source_margin_value
+
+        for record in records:
+            record.pop("_source_profit_margin", None)
 
     return {
         "model": "Basira Normalized Transactions",

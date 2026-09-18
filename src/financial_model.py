@@ -52,6 +52,11 @@ def _detect_currency(normalized: dict[str, Any]) -> str:
 
 def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
     records = normalized.get("records", [])
+
+    has_any_gross_profit = False
+    total_gross_profit = 0.0
+
+
     if not records:
         raise ValueError("Normalized transaction data contains no records.")
 
@@ -67,6 +72,8 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
             "cogs": 0.0,
             "tax": 0.0,
             "operating_expense": 0.0,
+            "gross_profit": 0.0,
+            "has_gross_profit": False,
             "has_cogs": False,
             "row_count": 0,
             "missing_revenue_rows": 0,
@@ -148,6 +155,16 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
             bucket["operating_expense"] += operating_expense
             total_operating_expense += operating_expense
 
+        profit_value = _to_number(record.get("gross_profit"))
+
+        if profit_value is not None:
+            bucket["gross_profit"] += profit_value
+            bucket["has_gross_profit"] = True
+
+        if profit_value is not None:
+            total_gross_profit += profit_value
+            has_any_gross_profit = True
+
     periods: list[dict[str, Any]] = []
     for period in sorted(by_period):
         bucket = by_period[period]
@@ -157,13 +174,9 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
             or bucket["operating_expense"] != 0
         )
 
-        if has_profit_inputs:
-            gross_profit = (
-                bucket["revenue"]
-                - bucket["cogs"]
-                - bucket["operating_expense"]
-            )
 
+        if bucket["has_gross_profit"]:
+            gross_profit = bucket["gross_profit"]
             gross_margin = (
                 gross_profit / bucket["revenue"]
                 if bucket["revenue"]
@@ -172,6 +185,7 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
         else:
             gross_profit = None
             gross_margin = None
+
 
         periods.append({
             "period": period,
@@ -204,13 +218,8 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
         for record in records
     )
 
-    if has_any_profit_inputs:
-        gross_profit = (
-            total_revenue
-            - total_cogs
-            - total_operating_expense
-        )
-
+    if has_any_gross_profit:
+        gross_profit = total_gross_profit
         gross_margin = (
             gross_profit / total_revenue
             if total_revenue
@@ -241,7 +250,7 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
             },
             "gross_profit": {
                 "value": _round(gross_profit),
-                "formula": "revenue - cogs",
+                "formula": "sum(normalized_transactions.gross_profit)",
                 "status": "calculated" if gross_profit is not None else "unavailable_missing_cogs",
             },
             "gross_margin": {
@@ -274,7 +283,8 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
             "Revenue is not assumed to be tax-inclusive or tax-exclusive beyond the source context.",
             "Tax is reported separately and is not subtracted from Revenue automatically.",
             "Currency is detected from monetary source headers when a recognizable currency marker is present; otherwise the MVP default is Arabic Saudi Riyal wording.",
-            "Gross profit is calculated as Revenue minus COGS only when COGS is available; missing COGS is not treated as zero.",
+            "Profit is taken from source Net Profit when available; otherwise it is derived from Revenue minus COGS minus Operating Expense using normalized transaction rows.",
+            "Profit Margin is calculated at the monthly level as Monthly Profit divided by Monthly Revenue; the transaction table stores one monthly margin value on the last transaction date of each month.",
             "Operating expenses are kept separate from COGS and are shown in the monthly revenue-and-cost report when available.",
         ],
     }

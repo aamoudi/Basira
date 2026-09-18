@@ -80,5 +80,23 @@
       "text",
       "integer"
     ]
+  },
+  "Net Profit": {
+    "description": "Net or final profit amount associated with the transaction or accounting record.",
+    "preferred_types": [
+      "integer",
+      "float",
+      "decimal",
+      "currency_like"
+    ]
+  },
+  "Profit Margin": {
+    "description": "Profit margin expressed as a percentage or decimal ratio.",
+    "preferred_types": [
+      "integer",
+      "float",
+      "decimal",
+      "percentage_like"
+    ]
   }
 }
