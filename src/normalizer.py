@@ -304,10 +304,14 @@ def build_normalized_transactions(
                     operating_expense_value,
                 )
             ):
+                revenue_amount = revenue_value or 0.0
+                cogs_amount = abs(cogs_value or 0.0)
+                operating_expense_amount = abs(operating_expense_value or 0.0)
+
                 record["gross_profit"] = round(
-                    (revenue_value or 0.0)
-                    - (cogs_value or 0.0)
-                    - (operating_expense_value or 0.0),
+                    revenue_amount
+                    - cogs_amount
+                    - operating_expense_amount,
                     2,
                 )
 
