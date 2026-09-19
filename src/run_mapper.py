@@ -76,7 +76,21 @@ Profit mapping rule:
   instead of deriving the same value unnecessarily.
 - Net Profit and Profit Margin are part of the mapping layer only; they do
   not represent new dashboard reports.  
-  
+
+
+Running Balance / Cumulative Balance Rule:
+- Never map a Running Balance, Cumulative Balance, Accumulated Balance,
+  Closing Balance, or الرصيد التراكمي / الرصيد المتراكم column to
+  Revenue, COGS, Operating Expense, Net Profit, or Profit Margin.
+- A running balance includes the effect of previous transactions.
+  It is not an independent transaction amount and must never be summed
+  to calculate revenue, expenses, or profit.
+- If the source contains both a transaction amount and a running balance,
+  map the transaction amount according to its transaction type.
+  Leave the running balance unmapped.
+- Do not interpret a cumulative balance as Net Profit, even if its values
+  increase with revenue and decrease with expenses.  
+
 
 Do not replace a higher-priority field with a lower-priority fallback when the
 higher-priority field exists.
@@ -213,6 +227,22 @@ CUSTOMER_FALLBACK_GROUPS = (
     ),
 )
 
+# Columns representing a running/cumulative balance must never be
+# mapped to revenue, expenses, profit, or profit margin.
+BALANCE_COLUMN_TERMS = (
+    "balance",
+    "running balance",
+    "cumulative balance",
+    "accumulated balance",
+    "closing balance",
+    "الرصيد التراكمي",
+    "الرصيد المتراكم",
+    "الرصيد المرحل",
+    "الرصيد الختامي",
+    "رصيد تراكمي",
+    "رصيد مرحل",
+)
+
 PRODUCT_FALLBACK_GROUPS = (
     (
         "product",
@@ -244,6 +274,14 @@ def _normalize_column_label(value: Any) -> str:
         .replace("_", " ")
         .replace("-", " ")
         .replace("  ", " ")
+    )
+
+def _is_balance_column(source_column: str) -> bool:
+    normalized = _normalize_column_label(source_column)
+
+    return any(
+        _normalize_column_label(term) in normalized
+        for term in BALANCE_COLUMN_TERMS
     )
 
 
@@ -362,10 +400,34 @@ def validate(result: dict[str, Any], profile: dict[str, Any], threshold: float =
 
             if source not in valid_columns.get(sheet_name, set()):
                 mapping["status"] = "rejected"
-                mapping["reason"] = (mapping.get("reason") or "") + " | Source column does not exist in the supplied sheet."
+                mapping["reason"] = (
+                    (mapping.get("reason") or "")
+                    + " | Source column does not exist in the supplied sheet."
+                )
+
+            elif (
+                _is_balance_column(str(source))
+                and semantic in {
+                    "Revenue",
+                    "COGS",
+                    "Operating Expense",
+                    "Net Profit",
+                    "Profit Margin",
+                }
+            ):
+                mapping["status"] = "rejected"
+                mapping["reason"] = (
+                    (mapping.get("reason") or "")
+                    + " | Running/cumulative balance columns cannot be used "
+                    "as revenue, expenses, net profit, or profit margin."
+                )
+
             elif semantic not in allowed_semantics:
                 mapping["status"] = "rejected"
-                mapping["reason"] = (mapping.get("reason") or "") + " | Semantic field is outside the Basira schema."
+                mapping["reason"] = (
+                    (mapping.get("reason") or "")
+                    + " | Semantic field is outside the Basira schema."
+                )
             elif semantic in seen_semantics:
                 mapping["status"] = "needs_review"
                 mapping["reason"] = (mapping.get("reason") or "") + " | Duplicate semantic target in the same sheet."
