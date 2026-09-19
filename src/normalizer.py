@@ -13,6 +13,7 @@ CANONICAL_FIELDS = [
     "quantity",
     "revenue",
     "cogs",
+    "unit_cost",
     "tax",
     "payment_status",
     "transaction_type",
@@ -35,6 +36,7 @@ SEMANTIC_TO_CANONICAL = {
     "Tax": "tax",
     "Payment Status": "payment_status",
     "Transaction Type": "transaction_type",
+     "unit_cost": "unit_cost",
 
     # Source-provided profit fields are normalized into the existing
     # Basira profit columns. No new dashboard columns are created.
@@ -215,6 +217,27 @@ def build_normalized_transactions(
                 quality["invalid_fields"].append(canonical)
                 invalid_by_field[canonical] += 1
 
+        # احسب COGS من unit_cost × quantity إذا لم يكن موجوداً مباشرة
+        if record.get("cogs") is None:
+            uc = record.get("unit_cost")
+            qty = record.get("quantity")
+            if uc is not None and qty is not None:
+                record["cogs"] = round(abs(uc) * abs(qty), 2)
+
+        # الآن record["cogs"] إما جاهز من المصدر أو محسوب
+        if record["gross_profit"] is None:
+            revenue = record.get("revenue")
+            cogs = record.get("cogs")
+            opex = record.get("operating_expense")
+            
+            has_cost = cogs is not None or opex is not None
+            
+            if revenue is not None and has_cost:
+                record["gross_profit"] = round(
+                    revenue - abs(cogs or 0.0) - abs(opex or 0.0), 2
+                )
+
+                
         # Derived financial fields. These are initialized for every row so the
         # transaction table has a stable schema even when the source omits them.
         record["operating_expense"] = None
@@ -287,34 +310,59 @@ def build_normalized_transactions(
                     2,
                 )
 
+        cogs_value = None
+
         # If the source does not provide Net Profit for this row,
         # derive it from the normalized components.
         if record["gross_profit"] is None:
-            revenue_value = _to_number(record.get("revenue"))
-            cogs_value = _to_number(record.get("cogs"))
-            operating_expense_value = _to_number(
-                record.get("operating_expense")
+            revenue_value = record.get("revenue")
+            cogs_value = record.get("cogs")
+            operating_expense_value = record.get("operating_expense")
+
+            has_cost_data = (
+                cogs_value is not None
+                or operating_expense_value is not None
             )
 
-            if any(
-                value is not None
-                for value in (
-                    revenue_value,
-                    cogs_value,
-                    operating_expense_value,
-                )
-            ):
+            if revenue_value is not None and has_cost_data:
                 revenue_amount = revenue_value or 0.0
+
                 cogs_amount = abs(cogs_value or 0.0)
-                operating_expense_amount = abs(operating_expense_value or 0.0)
+
+                expense_amount = abs(
+                    operating_expense_value or 0.0
+                )
 
                 record["gross_profit"] = round(
                     revenue_amount
                     - cogs_amount
-                    - operating_expense_amount,
+                    - expense_amount,
                     2,
                 )
 
+        unit_cost_source = source_by_canonical.get("unit_cost")
+        quantity_source = source_by_canonical.get("quantity")
+
+        unit_cost_value = (
+            _to_number(row.get(unit_cost_source))
+            if unit_cost_source
+            else None
+        )
+
+        quantity_value = (
+            _to_number(row.get(quantity_source))
+            if quantity_source
+            else None
+        )
+        # Calculate total COGS from unit cost and quantity
+        # only when total COGS is not available.
+
+        if cogs_value is None:
+            if unit_cost_value is not None and quantity_value is not None:
+                cogs_value = abs(unit_cost_value) * abs(quantity_value)
+
+
+                
         # ------------------------------------------------------------------
         # Source Profit Margin
         #
