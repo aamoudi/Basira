@@ -168,11 +168,7 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
     periods: list[dict[str, Any]] = []
     for period in sorted(by_period):
         bucket = by_period[period]
-        has_profit_inputs = (
-            bucket["revenue"] != 0
-            or bucket["cogs"] != 0
-            or bucket["operating_expense"] != 0
-        )
+        
 
 
         if bucket["has_gross_profit"]:
@@ -206,17 +202,6 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
             },
         })
 
-    has_any_profit_inputs = any(
-        any(
-            _to_number(record.get(field)) is not None
-            for field in (
-                "revenue",
-                "cogs",
-                "operating_expense",
-            )
-        )
-        for record in records
-    )
 
     if has_any_gross_profit:
         gross_profit = total_gross_profit
@@ -251,12 +236,12 @@ def build_financial_model(normalized: dict[str, Any]) -> dict[str, Any]:
             "gross_profit": {
                 "value": _round(gross_profit),
                 "formula": "sum(normalized_transactions.gross_profit)",
-                "status": "calculated" if gross_profit is not None else "unavailable_missing_cogs",
+                "status": "calculated" if gross_profit is not None else "unavailable_missing_profit_inputs",
             },
             "gross_margin": {
                 "value": _round(gross_margin),
                 "formula": "gross_profit / revenue",
-                "status": "calculated" if gross_margin is not None else "unavailable_missing_cogs",
+                "status": "calculated" if gross_margin is not None else "unavailable_missing_profit_inputs",
             },
             "operating_expense": {
                 "value": _round(total_operating_expense) if total_operating_expense else None,
