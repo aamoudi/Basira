@@ -92,14 +92,6 @@ Running Balance / Cumulative Balance Rule:
   increase with revenue and decrease with expenses.  
 
 
-UNIT COST RULES:
-- Map unit cost columns (e.g. "تكلفة الوحدة", "Unit Cost",
-  "Cost Per Unit") to "unit_cost".
-- Map total cost of goods sold columns to "cogs".
-- Never map unit cost directly to total "cogs".
-- If both unit cost and quantity exist, preserve them
-  separately so total COGS can be calculated later.    
-
 Do not replace a higher-priority field with a lower-priority fallback when the
 higher-priority field exists.
  
@@ -395,7 +387,6 @@ def validate(result: dict[str, Any], profile: dict[str, Any], threshold: float =
         "Invoice Number",
         "Net Profit",
         "Profit Margin",
-        "unit_cost"
     }
 
     for sheet_result in result.get("sheet_results", []):
