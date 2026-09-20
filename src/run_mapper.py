@@ -94,7 +94,7 @@ Running Balance / Cumulative Balance Rule:
 
 UNIT COST RULES:
 - Map unit cost columns (e.g. "تكلفة الوحدة", "Unit Cost",
-  "Cost Per Unit") to "unit_cost".
+  "Cost Per Unit","سعر الوحدة") to "unit_cost".
 - Map total cost of goods sold columns to "cogs".
 - Never map unit cost directly to total "cogs".
 - If both unit cost and quantity exist, preserve them
