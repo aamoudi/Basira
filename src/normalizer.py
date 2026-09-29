@@ -19,7 +19,8 @@ CANONICAL_FIELDS = [
     "transaction_type",
 ]
 
-# These are derived from normalized transaction data; they are not source mappings.
+# These are derived from normalized transaction data;
+#  they are not source mappings.
 DERIVED_FIELDS = [
     "operating_expense",
     "gross_profit",
